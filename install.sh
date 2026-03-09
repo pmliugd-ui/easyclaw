@@ -7,7 +7,10 @@
 # 许可证: MIT
 # ============================================================================
 
-set -euo pipefail
+set -uo pipefail
+# 注意: 不使用 set -e，因为在 macOS 的 bash 3.2 上
+# read 命令和某些条件判断会返回非零导致脚本意外退出
+# 我们通过 ERR trap 和显式错误检查来处理错误
 
 # ======================== 颜色与样式定义 ========================
 RED='\033[0;31m'
@@ -131,7 +134,7 @@ wait_for_user() {
         return 0
     fi
     echo ""
-    read -rp "  按 Enter 键继续下一步..."
+    safe_read -rp "  按 Enter 键继续下一步..."
 }
 
 spinner() {
@@ -166,6 +169,11 @@ run_with_spinner() {
 
 cmd_exists() {
     command -v "$1" &>/dev/null
+}
+
+# 安全的 read 封装，防止在 set -e 或 ERR trap 下意外退出
+safe_read() {
+    read "$@" || true
 }
 
 # ======================== 步骤 1：系统检测 ========================
@@ -313,7 +321,7 @@ install_system_deps() {
             echo ""
             ask "是否安装 Homebrew? (强烈推荐) [Y/n]:"
             local install_brew
-            read -r install_brew
+            safe_read -r install_brew
             if [[ "${install_brew:-Y}" =~ ^[Yy] ]]; then
                 info "正在安装 Homebrew，这可能需要几分钟..."
                 tip "如果下载慢，可以 Ctrl+C 中断，配置代理后重试"
@@ -519,7 +527,7 @@ configure_npm_mirror() {
 
     local choice
     ask "请选择 [1/2/3，默认 3]:"
-    read -r choice
+    safe_read -r choice
     choice="${choice:-3}"
 
     case "$choice" in
@@ -567,7 +575,7 @@ install_openclaw() {
         else
             ask "请选择 [1/2，默认 2]:"
             local choice
-            read -r choice
+            safe_read -r choice
             choice="${choice:-2}"
         fi
 
@@ -683,7 +691,7 @@ configure_provider() {
 
         ask "请选择 [1/2，默认 1]:"
         local choice
-        read -r choice
+        safe_read -r choice
         if [ "${choice:-1}" = "1" ]; then
             info "保持已有配置"
             return 0
@@ -726,7 +734,7 @@ configure_provider() {
     else
         ask "请选择 [1-7，默认 7]:"
         local choice
-        read -r choice
+        safe_read -r choice
         choice="${choice:-7}"
     fi
 
@@ -776,7 +784,7 @@ configure_anthropic() {
     fi
 
     ask "请粘贴你的 Anthropic API Key (留空则稍后配置):"
-    read -rs API_KEY
+    safe_read -rs API_KEY
     echo ""
 
     if [ -z "$API_KEY" ]; then
@@ -810,7 +818,7 @@ configure_openai() {
     fi
 
     ask "请粘贴你的 OpenAI API Key (留空则稍后配置):"
-    read -rs API_KEY
+    safe_read -rs API_KEY
     echo ""
 
     if [ -z "$API_KEY" ]; then
@@ -845,7 +853,7 @@ configure_openrouter() {
     fi
 
     ask "请粘贴你的 OpenRouter API Key (留空则稍后配置):"
-    read -rs API_KEY
+    safe_read -rs API_KEY
     echo ""
 
     if [ -z "$API_KEY" ]; then
@@ -879,7 +887,7 @@ configure_groq() {
     fi
 
     ask "请粘贴你的 Groq API Key (留空则稍后配置):"
-    read -rs API_KEY
+    safe_read -rs API_KEY
     echo ""
 
     if [ -z "$API_KEY" ]; then
@@ -936,7 +944,7 @@ configure_ollama() {
 
         ask "是否现在安装 Ollama? [y/N]:"
         local install_ollama
-        read -r install_ollama
+        safe_read -r install_ollama
         if [[ "$install_ollama" =~ ^[Yy] ]]; then
             run_with_spinner "安装 Ollama" bash -c "curl -fsSL https://ollama.com/install.sh | sh"
             if cmd_exists ollama; then
@@ -968,17 +976,17 @@ configure_custom() {
 
     ask "请输入 API Base URL (例: https://api.deepseek.com/v1):"
     local base_url
-    read -r base_url
+    safe_read -r base_url
     echo ""
 
     ask "请输入 API Key:"
-    read -rs API_KEY
+    safe_read -rs API_KEY
     echo ""
     echo ""
 
     ask "请输入模型名称 (例: deepseek-chat):"
     local model_id
-    read -r model_id
+    safe_read -r model_id
 
     if [ -n "$base_url" ] && [ -n "$API_KEY" ]; then
         export CUSTOM_BASE_URL="$base_url"
@@ -1058,7 +1066,7 @@ run_onboard() {
     echo ""
 
     ask "准备好了? 按 Enter 启动向导..."
-    read -r
+    safe_read -r
 
     echo ""
     echo -e "  ${CYAN}════════════════ OpenClaw 向导开始 ════════════════${NC}"
@@ -1273,7 +1281,7 @@ security_check() {
         echo ""
         ask "是否继续以 root 身份安装? [y/N]:"
         local continue_as_root
-        read -r continue_as_root
+        safe_read -r continue_as_root
         if [[ ! "$continue_as_root" =~ ^[Yy] ]]; then
             info "请使用普通用户重新运行本脚本"
             exit 0
@@ -1289,7 +1297,7 @@ main() {
 
     if [ "$NON_INTERACTIVE" != true ]; then
         ask "准备好了吗? 按 Enter 开始安装..."
-        read -r
+        safe_read -r
     fi
 
     security_check
@@ -1303,8 +1311,9 @@ main() {
     print_completion
 }
 
-# 捕获错误
+# 捕获未预期的错误
 trap 'error "EasyClaw 脚本在第 $LINENO 行出错，退出码: $?"; echo ""; info "查看详细日志: $LOG_FILE"; echo ""; tip "如果问题持续，可以截图日志到 GitHub 提 issue: github.com/pmliugd-ui/easyclaw"; exit 1' ERR
 
 # 运行
 main "$@"
+exit 0
